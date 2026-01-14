@@ -82,6 +82,42 @@ export type Database = {
         }
         Relationships: []
       }
+      political_parties: {
+        Row: {
+          color: string
+          created_at: string
+          description: string | null
+          display_order: number
+          id: string
+          is_nota: boolean
+          name: string
+          short_name: string
+          symbol_url: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_nota?: boolean
+          name: string
+          short_name: string
+          symbol_url?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          id?: string
+          is_nota?: boolean
+          name?: string
+          short_name?: string
+          symbol_url?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -127,11 +163,171 @@ export type Database = {
         }
         Relationships: []
       }
+      vote_blocks: {
+        Row: {
+          block_hash: string
+          block_number: number
+          id: string
+          is_verified: boolean
+          merkle_root: string
+          previous_block_hash: string | null
+          timestamp: string
+          vote_count: number
+        }
+        Insert: {
+          block_hash: string
+          block_number: number
+          id?: string
+          is_verified?: boolean
+          merkle_root: string
+          previous_block_hash?: string | null
+          timestamp?: string
+          vote_count?: number
+        }
+        Update: {
+          block_hash?: string
+          block_number?: number
+          id?: string
+          is_verified?: boolean
+          merkle_root?: string
+          previous_block_hash?: string | null
+          timestamp?: string
+          vote_count?: number
+        }
+        Relationships: []
+      }
+      voters: {
+        Row: {
+          address: string
+          constituency: string
+          created_at: string
+          date_of_birth: string
+          full_name: string
+          has_voted: boolean
+          id: string
+          otp_code: string | null
+          otp_expires_at: string | null
+          phone_number: string
+          updated_at: string
+          user_id: string
+          verification_status: Database["public"]["Enums"]["verification_status"]
+          voted_at: string | null
+          voter_id: string
+        }
+        Insert: {
+          address: string
+          constituency: string
+          created_at?: string
+          date_of_birth: string
+          full_name: string
+          has_voted?: boolean
+          id?: string
+          otp_code?: string | null
+          otp_expires_at?: string | null
+          phone_number: string
+          updated_at?: string
+          user_id: string
+          verification_status?: Database["public"]["Enums"]["verification_status"]
+          voted_at?: string | null
+          voter_id: string
+        }
+        Update: {
+          address?: string
+          constituency?: string
+          created_at?: string
+          date_of_birth?: string
+          full_name?: string
+          has_voted?: boolean
+          id?: string
+          otp_code?: string | null
+          otp_expires_at?: string | null
+          phone_number?: string
+          updated_at?: string
+          user_id?: string
+          verification_status?: Database["public"]["Enums"]["verification_status"]
+          voted_at?: string | null
+          voter_id?: string
+        }
+        Relationships: []
+      }
+      votes: {
+        Row: {
+          block_number: number
+          created_at: string
+          id: string
+          ip_address: string | null
+          nonce: number
+          party_id: string
+          previous_hash: string | null
+          status: Database["public"]["Enums"]["vote_status"]
+          timestamp: string
+          user_agent: string | null
+          vote_hash: string
+          voter_id: string
+        }
+        Insert: {
+          block_number: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          nonce?: number
+          party_id: string
+          previous_hash?: string | null
+          status?: Database["public"]["Enums"]["vote_status"]
+          timestamp?: string
+          user_agent?: string | null
+          vote_hash: string
+          voter_id: string
+        }
+        Update: {
+          block_number?: number
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          nonce?: number
+          party_id?: string
+          previous_hash?: string | null
+          status?: Database["public"]["Enums"]["vote_status"]
+          timestamp?: string
+          user_agent?: string | null
+          vote_hash?: string
+          voter_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "votes_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "political_parties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "votes_voter_id_fkey"
+            columns: ["voter_id"]
+            isOneToOne: false
+            referencedRelation: "voters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      generate_voter_id: { Args: never; Returns: string }
+      get_next_block_number: { Args: never; Returns: number }
+      get_vote_counts: {
+        Args: never
+        Returns: {
+          color: string
+          is_nota: boolean
+          party_id: string
+          party_name: string
+          short_name: string
+          vote_count: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -142,6 +338,8 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      verification_status: "unverified" | "otp_sent" | "verified"
+      vote_status: "pending" | "verified" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -270,6 +468,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      verification_status: ["unverified", "otp_sent", "verified"],
+      vote_status: ["pending", "verified", "rejected"],
     },
   },
 } as const
