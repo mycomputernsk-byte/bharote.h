@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      constituencies: {
+        Row: {
+          constituency_number: number
+          constituency_type: string
+          created_at: string
+          district: string | null
+          id: string
+          name: string
+          reserved_category: string | null
+          state: string
+          total_voters: number | null
+        }
+        Insert: {
+          constituency_number: number
+          constituency_type?: string
+          created_at?: string
+          district?: string | null
+          id?: string
+          name: string
+          reserved_category?: string | null
+          state: string
+          total_voters?: number | null
+        }
+        Update: {
+          constituency_number?: number
+          constituency_type?: string
+          created_at?: string
+          district?: string | null
+          id?: string
+          name?: string
+          reserved_category?: string | null
+          state?: string
+          total_voters?: number | null
+        }
+        Relationships: []
+      }
       event_registrations: {
         Row: {
           event_id: string
@@ -200,8 +236,13 @@ export type Database = {
         Row: {
           address: string
           constituency: string
+          constituency_id: string | null
           created_at: string
           date_of_birth: string
+          email: string | null
+          email_otp_code: string | null
+          email_otp_expires_at: string | null
+          email_verified: boolean | null
           full_name: string
           has_voted: boolean
           id: string
@@ -217,8 +258,13 @@ export type Database = {
         Insert: {
           address: string
           constituency: string
+          constituency_id?: string | null
           created_at?: string
           date_of_birth: string
+          email?: string | null
+          email_otp_code?: string | null
+          email_otp_expires_at?: string | null
+          email_verified?: boolean | null
           full_name: string
           has_voted?: boolean
           id?: string
@@ -234,8 +280,13 @@ export type Database = {
         Update: {
           address?: string
           constituency?: string
+          constituency_id?: string | null
           created_at?: string
           date_of_birth?: string
+          email?: string | null
+          email_otp_code?: string | null
+          email_otp_expires_at?: string | null
+          email_verified?: boolean | null
           full_name?: string
           has_voted?: boolean
           id?: string
@@ -248,7 +299,15 @@ export type Database = {
           voted_at?: string | null
           voter_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "voters_constituency_id_fkey"
+            columns: ["constituency_id"]
+            isOneToOne: false
+            referencedRelation: "constituencies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       votes: {
         Row: {
@@ -316,6 +375,23 @@ export type Database = {
     }
     Functions: {
       generate_voter_id: { Args: never; Returns: string }
+      get_all_states: {
+        Args: never
+        Returns: {
+          state: string
+        }[]
+      }
+      get_constituencies_by_state: {
+        Args: { p_state: string }
+        Returns: {
+          constituency_number: number
+          constituency_type: string
+          district: string
+          id: string
+          name: string
+          state: string
+        }[]
+      }
       get_next_block_number: { Args: never; Returns: number }
       get_vote_counts: {
         Args: never
