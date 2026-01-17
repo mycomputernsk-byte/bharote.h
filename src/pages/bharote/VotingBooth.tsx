@@ -4,13 +4,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import BharoteNavbar from "@/components/bharote/BharoteNavbar";
+import { useDeviceFingerprint } from "@/hooks/useDeviceFingerprint";
 import { 
   Vote, 
   Loader2,
   CheckCircle2,
   AlertTriangle,
   Lock,
-  Database
+  Database,
+  Fingerprint,
+  User,
+  Shield
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -31,6 +35,8 @@ interface Party {
   color: string;
   is_nota: boolean;
   description: string | null;
+  leader_name: string | null;
+  party_symbol: string | null;
 }
 
 const VotingBooth = () => {
@@ -40,8 +46,10 @@ const VotingBooth = () => {
   const [parties, setParties] = useState<Party[]>([]);
   const [selectedParty, setSelectedParty] = useState<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [fingerprintVerified, setFingerprintVerified] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { hash: fingerprintHash, isLoading: fingerprintLoading } = useDeviceFingerprint();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -96,26 +104,84 @@ const VotingBooth = () => {
     fetchData();
   }, [navigate, toast]);
 
-  const generateVoteHash = (voterId: string, partyId: string, timestamp: string, previousHash: string | null) => {
-    const data = `${voterId}|${partyId}|${timestamp}|${previousHash || 'GENESIS'}`;
-    // Simple hash for demo - in production use proper cryptographic hash
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
+  // Verify device fingerprint matches registration
+  useEffect(() => {
+    if (!fingerprintLoading && fingerprintHash && voter) {
+      if (voter.device_fingerprint_hash === fingerprintHash) {
+        setFingerprintVerified(true);
+      } else {
+        toast({
+          title: "Device Mismatch",
+          description: "You must vote from the same device you registered with.",
+          variant: "destructive",
+        });
+        setFingerprintVerified(false);
+      }
     }
-    return 'BLK' + Math.abs(hash).toString(16).toUpperCase().padStart(16, '0');
+  }, [fingerprintHash, fingerprintLoading, voter, toast]);
+
+  // Generate SHA-256 hash for blockchain
+  const generateVoteHash = async (
+    voterId: string, 
+    partyId: string, 
+    timestamp: string, 
+    previousHash: string | null,
+    fingerprint: string
+  ): Promise<string> => {
+    const data = `${voterId}|${partyId}|${timestamp}|${previousHash || 'GENESIS'}|${fingerprint}`;
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
   const handleVote = async () => {
-    if (!voter || !selectedParty) return;
+    if (!voter || !selectedParty || !fingerprintHash) return;
+    
+    // Final fingerprint check
+    if (!fingerprintVerified) {
+      toast({
+        title: "Voting Blocked",
+        description: "Device fingerprint does not match your registration. You must vote from the same device.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsVoting(true);
 
     try {
       const timestamp = new Date().toISOString();
       
-      // Get previous vote hash for chain
+      // Check if this fingerprint has already voted
+      const { data: existingVote } = await supabase
+        .from("voters")
+        .select("id, has_voted")
+        .eq("device_fingerprint_hash", fingerprintHash)
+        .eq("has_voted", true)
+        .single();
+
+      if (existingVote) {
+        throw new Error("This device has already been used to cast a vote.");
+      }
+
+      // Check if email has already voted
+      if (voter.email) {
+        const { data: emailVote } = await supabase
+          .from("voters")
+          .select("id, has_voted")
+          .eq("email", voter.email)
+          .eq("has_voted", true)
+          .neq("id", voter.id)
+          .single();
+
+        if (emailVote) {
+          throw new Error("This email address has already been used to cast a vote.");
+        }
+      }
+
+      // Get previous vote hash for blockchain chain
       const { data: lastVote } = await supabase
         .from("votes")
         .select("vote_hash, block_number")
@@ -124,10 +190,22 @@ const VotingBooth = () => {
         .single();
 
       const previousHash = lastVote?.vote_hash || null;
-      const blockNumber = (lastVote?.block_number || 0) + 1;
-      const voteHash = generateVoteHash(voter.id, selectedParty, timestamp, previousHash);
+      
+      // Get next block number using database function
+      const { data: blockNumber, error: blockError } = await supabase.rpc('get_next_block_number');
+      
+      if (blockError) throw blockError;
 
-      // Insert vote using service role (via edge function in production)
+      // Generate cryptographic vote hash
+      const voteHash = await generateVoteHash(
+        voter.id, 
+        selectedParty, 
+        timestamp, 
+        previousHash,
+        fingerprintHash
+      );
+
+      // Insert vote into blockchain
       const { error: voteError } = await supabase
         .from("votes")
         .insert({
@@ -155,7 +233,7 @@ const VotingBooth = () => {
 
       toast({
         title: "Vote Cast Successfully!",
-        description: "Your vote has been recorded on the blockchain.",
+        description: "Your vote has been permanently recorded on the blockchain.",
       });
 
       // Store vote hash in session for confirmation page
@@ -175,15 +253,21 @@ const VotingBooth = () => {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || fingerprintLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">
+            {fingerprintLoading ? "Verifying device fingerprint..." : "Loading voting booth..."}
+          </p>
+        </div>
       </div>
     );
   }
 
   const selectedPartyData = parties.find(p => p.id === selectedParty);
+  const canVote = fingerprintVerified && selectedParty && !isVoting;
 
   return (
     <div className="min-h-screen bg-background">
@@ -203,6 +287,25 @@ const VotingBooth = () => {
             <p className="text-muted-foreground">
               Select your preferred candidate from the list below
             </p>
+          </div>
+
+          {/* Fingerprint Verification Status */}
+          <div className={`p-4 rounded-xl mb-6 flex items-center gap-3 ${
+            fingerprintVerified 
+              ? "bg-accent/10 border border-accent/20" 
+              : "bg-destructive/10 border border-destructive/20"
+          }`}>
+            <Fingerprint className={`w-6 h-6 ${fingerprintVerified ? "text-accent" : "text-destructive"}`} />
+            <div>
+              <div className="font-medium">
+                {fingerprintVerified ? "Device Verified" : "Device Verification Failed"}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {fingerprintVerified 
+                  ? "Your device fingerprint matches your registration" 
+                  : "You must vote from the same device you registered with"}
+              </div>
+            </div>
           </div>
 
           {/* Voter Info */}
@@ -228,13 +331,14 @@ const VotingBooth = () => {
               <motion.button
                 key={party.id}
                 onClick={() => setSelectedParty(party.id)}
+                disabled={!fingerprintVerified}
                 className={`p-6 rounded-2xl border-2 text-left transition-all ${
                   selectedParty === party.id
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                     : "border-border bg-card hover:border-primary/50"
-                }`}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
+                } ${!fingerprintVerified ? "opacity-50 cursor-not-allowed" : ""}`}
+                whileHover={fingerprintVerified ? { scale: 1.01 } : {}}
+                whileTap={fingerprintVerified ? { scale: 0.99 } : {}}
               >
                 <div className="flex items-center gap-4">
                   <div 
@@ -245,7 +349,17 @@ const VotingBooth = () => {
                   </div>
                   <div className="flex-1">
                     <div className="font-semibold text-lg">{party.name}</div>
-                    <div className="text-sm text-muted-foreground">{party.short_name}</div>
+                    {party.leader_name && (
+                      <div className="text-sm text-muted-foreground flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        {party.leader_name}
+                      </div>
+                    )}
+                    {party.party_symbol && (
+                      <div className="text-xs text-muted-foreground">
+                        Symbol: {party.party_symbol}
+                      </div>
+                    )}
                   </div>
                   {selectedParty === party.id && (
                     <CheckCircle2 className="w-6 h-6 text-primary" />
@@ -265,10 +379,12 @@ const VotingBooth = () => {
             <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
             <div className="text-sm">
               <p className="font-semibold text-destructive mb-1">Important Notice</p>
-              <p className="text-muted-foreground">
-                Once submitted, your vote cannot be changed or revoked. 
-                Your vote will be permanently recorded on the blockchain.
-              </p>
+              <ul className="text-muted-foreground space-y-1">
+                <li>• Once submitted, your vote <strong>cannot be changed or revoked</strong></li>
+                <li>• Your vote is permanently recorded on the blockchain</li>
+                <li>• Your device fingerprint and email are locked after voting</li>
+                <li>• No re-voting is allowed from the same device or email</li>
+              </ul>
             </div>
           </div>
 
@@ -276,12 +392,17 @@ const VotingBooth = () => {
           <Button 
             onClick={() => setShowConfirmDialog(true)}
             className="w-full h-14 text-lg gradient-saffron hover:opacity-90"
-            disabled={!selectedParty || isVoting}
+            disabled={!canVote}
           >
             {isVoting ? (
               <>
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 Recording Vote on Blockchain...
+              </>
+            ) : !fingerprintVerified ? (
+              <>
+                <Shield className="w-5 h-5 mr-2" />
+                Device Verification Required
               </>
             ) : (
               <>
@@ -294,7 +415,7 @@ const VotingBooth = () => {
           {/* Blockchain Badge */}
           <div className="mt-6 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
             <Database className="w-4 h-4" />
-            Secured by blockchain technology
+            Secured by SHA-256 blockchain technology
           </div>
         </motion.div>
       </div>
@@ -316,13 +437,23 @@ const VotingBooth = () => {
                   </div>
                   <div>
                     <div className="font-semibold">{selectedPartyData.name}</div>
-                    <div className="text-sm text-muted-foreground">{selectedPartyData.short_name}</div>
+                    {selectedPartyData.leader_name && (
+                      <div className="text-sm text-muted-foreground">
+                        Led by {selectedPartyData.leader_name}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
-              <p className="text-sm text-destructive font-medium">
-                This action cannot be undone. Your vote will be permanently recorded.
-              </p>
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                <p className="text-sm text-destructive font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  This action cannot be undone
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your vote will be permanently recorded on the blockchain and cannot be changed.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -335,7 +466,7 @@ const VotingBooth = () => {
               {isVoting ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Submitting...
+                  Recording...
                 </>
               ) : (
                 "Confirm Vote"

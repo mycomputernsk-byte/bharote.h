@@ -126,7 +126,9 @@ export type Database = {
           display_order: number
           id: string
           is_nota: boolean
+          leader_name: string | null
           name: string
+          party_symbol: string | null
           short_name: string
           symbol_url: string | null
         }
@@ -137,7 +139,9 @@ export type Database = {
           display_order?: number
           id?: string
           is_nota?: boolean
+          leader_name?: string | null
           name: string
+          party_symbol?: string | null
           short_name: string
           symbol_url?: string | null
         }
@@ -148,7 +152,9 @@ export type Database = {
           display_order?: number
           id?: string
           is_nota?: boolean
+          leader_name?: string | null
           name?: string
+          party_symbol?: string | null
           short_name?: string
           symbol_url?: string | null
         }
@@ -239,6 +245,8 @@ export type Database = {
           constituency_id: string | null
           created_at: string
           date_of_birth: string
+          device_fingerprint: string | null
+          device_fingerprint_hash: string | null
           email: string | null
           email_otp_code: string | null
           email_otp_expires_at: string | null
@@ -261,6 +269,8 @@ export type Database = {
           constituency_id?: string | null
           created_at?: string
           date_of_birth: string
+          device_fingerprint?: string | null
+          device_fingerprint_hash?: string | null
           email?: string | null
           email_otp_code?: string | null
           email_otp_expires_at?: string | null
@@ -283,6 +293,8 @@ export type Database = {
           constituency_id?: string | null
           created_at?: string
           date_of_birth?: string
+          device_fingerprint?: string | null
+          device_fingerprint_hash?: string | null
           email?: string | null
           email_otp_code?: string | null
           email_otp_expires_at?: string | null
