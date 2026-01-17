@@ -13,9 +13,12 @@ import {
   CheckCircle2,
   Shield,
   Send,
-  RefreshCw
+  RefreshCw,
+  Mail,
+  Smartphone
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const VoterVerification = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -24,6 +27,7 @@ const VoterVerification = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
   const [countdown, setCountdown] = useState(0);
+  const [verificationMethod, setVerificationMethod] = useState<"sms" | "email">("sms");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -69,8 +73,59 @@ const VoterVerification = () => {
     }
   }, [countdown]);
 
-  const handleSendOtp = async () => {
+  const handleSendSmsOtp = async () => {
     if (!voter) return;
+    setIsSendingOtp(true);
+
+    try {
+      // Call the Twilio SMS edge function
+      const { data, error } = await supabase.functions.invoke('send-sms-otp', {
+        body: {
+          phoneNumber: voter.phone_number,
+          voterId: voter.id
+        }
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to send OTP');
+      }
+
+      // Update verification status
+      await supabase
+        .from("voters")
+        .update({ verification_status: "otp_sent" })
+        .eq("id", voter.id);
+
+      toast({
+        title: "OTP Sent!",
+        description: `A 6-digit code has been sent to ${voter.phone_number}`,
+      });
+
+      setOtpSent(true);
+      setCountdown(60);
+    } catch (error: any) {
+      console.error('SMS OTP Error:', error);
+      toast({
+        title: "Failed to send OTP",
+        description: error.message || "Please try again or use email verification",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleSendEmailOtp = async () => {
+    if (!voter || !voter.email) {
+      toast({
+        title: "Email Required",
+        description: "No email address found. Please update your registration.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsSendingOtp(true);
 
     try {
@@ -82,18 +137,18 @@ const VoterVerification = () => {
       const { error } = await supabase
         .from("voters")
         .update({
-          otp_code: generatedOtp,
-          otp_expires_at: expiresAt.toISOString(),
+          email_otp_code: generatedOtp,
+          email_otp_expires_at: expiresAt.toISOString(),
           verification_status: "otp_sent",
         })
         .eq("id", voter.id);
 
       if (error) throw error;
 
-      // In production, this would send via SMS
+      // In production, this would send via email service
       toast({
-        title: "OTP Sent!",
-        description: `For demo: Your OTP is ${generatedOtp}. In production, this would be sent to ${voter.phone_number}`,
+        title: "Email OTP Sent!",
+        description: `For demo: Your OTP is ${generatedOtp}. In production, this would be sent to ${voter.email}`,
       });
 
       setOtpSent(true);
@@ -109,6 +164,14 @@ const VoterVerification = () => {
     }
   };
 
+  const handleSendOtp = () => {
+    if (verificationMethod === "sms") {
+      handleSendSmsOtp();
+    } else {
+      handleSendEmailOtp();
+    }
+  };
+
   const handleVerifyOtp = async () => {
     if (!voter || !otp) return;
     setIsLoading(true);
@@ -117,29 +180,49 @@ const VoterVerification = () => {
       // Fetch latest voter data with OTP
       const { data: voterData, error: fetchError } = await supabase
         .from("voters")
-        .select("otp_code, otp_expires_at")
+        .select("otp_code, otp_expires_at, email_otp_code, email_otp_expires_at")
         .eq("id", voter.id)
         .single();
 
       if (fetchError) throw fetchError;
 
+      // Check which OTP to verify
+      let otpCode: string | null = null;
+      let otpExpiry: string | null = null;
+
+      if (verificationMethod === "sms") {
+        otpCode = voterData.otp_code;
+        otpExpiry = voterData.otp_expires_at;
+      } else {
+        otpCode = voterData.email_otp_code;
+        otpExpiry = voterData.email_otp_expires_at;
+      }
+
       // Verify OTP
-      if (voterData.otp_code !== otp) {
+      if (otpCode !== otp) {
         throw new Error("Invalid OTP. Please check and try again.");
       }
 
-      if (new Date(voterData.otp_expires_at) < new Date()) {
+      if (otpExpiry && new Date(otpExpiry) < new Date()) {
         throw new Error("OTP has expired. Please request a new one.");
       }
 
       // Update verification status
+      const updateData: any = {
+        verification_status: "verified",
+        otp_code: null,
+        otp_expires_at: null,
+        email_otp_code: null,
+        email_otp_expires_at: null,
+      };
+
+      if (verificationMethod === "email") {
+        updateData.email_verified = true;
+      }
+
       const { error } = await supabase
         .from("voters")
-        .update({
-          verification_status: "verified",
-          otp_code: null,
-          otp_expires_at: null,
-        })
+        .update(updateData)
         .eq("id", voter.id);
 
       if (error) throw error;
@@ -205,20 +288,47 @@ const VoterVerification = () => {
 
             {!otpSent ? (
               <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                    <Phone className="w-10 h-10 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Phone Verification</h3>
-                  <p className="text-muted-foreground">
-                    We'll send a one-time password to <strong>{voter.phone_number}</strong>
-                  </p>
-                </div>
+                <Tabs value={verificationMethod} onValueChange={(v) => setVerificationMethod(v as "sms" | "email")}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="sms" className="flex items-center gap-2">
+                      <Smartphone className="w-4 h-4" />
+                      SMS
+                    </TabsTrigger>
+                    <TabsTrigger value="email" className="flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      Email
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="sms" className="mt-6">
+                    <div className="text-center">
+                      <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                        <Phone className="w-10 h-10 text-primary" />
+                      </div>
+                      <h3 className="text-xl font-semibold mb-2">Phone Verification</h3>
+                      <p className="text-muted-foreground">
+                        We'll send a one-time password to <strong>{voter.phone_number}</strong>
+                      </p>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="email" className="mt-6">
+                    <div className="text-center">
+                      <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                        <Mail className="w-10 h-10 text-primary" />
+                      </div>
+                      <h3 className="text-xl font-semibold mb-2">Email Verification</h3>
+                      <p className="text-muted-foreground">
+                        We'll send a one-time password to <strong>{voter.email || "No email set"}</strong>
+                      </p>
+                    </div>
+                  </TabsContent>
+                </Tabs>
 
                 <Button 
                   onClick={handleSendOtp}
                   className="w-full h-12 text-lg gradient-saffron hover:opacity-90"
-                  disabled={isSendingOtp}
+                  disabled={isSendingOtp || (verificationMethod === "email" && !voter.email)}
                 >
                   {isSendingOtp ? (
                     <>
@@ -228,7 +338,7 @@ const VoterVerification = () => {
                   ) : (
                     <>
                       <Send className="w-5 h-5 mr-2" />
-                      Send OTP
+                      Send OTP via {verificationMethod === "sms" ? "SMS" : "Email"}
                     </>
                   )}
                 </Button>
@@ -241,7 +351,7 @@ const VoterVerification = () => {
                   </div>
                   <h3 className="text-xl font-semibold mb-2">Enter OTP</h3>
                   <p className="text-muted-foreground">
-                    Enter the 6-digit code sent to your phone
+                    Enter the 6-digit code sent to your {verificationMethod === "sms" ? "phone" : "email"}
                   </p>
                 </div>
 
