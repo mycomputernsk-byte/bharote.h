@@ -11,6 +11,7 @@ import Results from "./pages/bharote/Results";
 import BlockchainExplorer from "./pages/bharote/BlockchainExplorer";
 import VoterDashboard from "./pages/bharote/VoterDashboard";
 import BharoteAuth from "./pages/bharote/BharoteAuth";
+import AdminDashboard from "./pages/bharote/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const App = () => (
@@ -27,6 +28,7 @@ const App = () => (
       <Route path="/results" element={<Results />} />
       <Route path="/blockchain" element={<BlockchainExplorer />} />
       <Route path="/dashboard" element={<VoterDashboard />} />
+      <Route path="/admin" element={<AdminDashboard />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   </TooltipProvider>

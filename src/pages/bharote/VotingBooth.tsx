@@ -231,9 +231,35 @@ const VotingBooth = () => {
 
       if (voterError) throw voterError;
 
+      // Get party details for confirmation email
+      const selectedPartyData = parties.find(p => p.id === selectedParty);
+
+      // Send vote confirmation email with AI-generated message
+      try {
+        await supabase.functions.invoke('send-vote-confirmation', {
+          body: {
+            email: voter.email,
+            voterName: voter.full_name,
+            voterId: voter.voter_id,
+            phoneNumber: voter.phone_number,
+            partyName: selectedPartyData?.name || 'Unknown',
+            partySymbol: selectedPartyData?.party_symbol || '',
+            partyLeader: selectedPartyData?.leader_name || '',
+            voteHash: voteHash,
+            blockNumber: blockNumber,
+            timestamp: timestamp,
+            constituency: voter.constituency
+          }
+        });
+        console.log("Vote confirmation email sent");
+      } catch (emailError) {
+        console.error("Failed to send confirmation email:", emailError);
+        // Don't fail the vote if email fails
+      }
+
       toast({
         title: "Vote Cast Successfully!",
-        description: "Your vote has been permanently recorded on the blockchain.",
+        description: "Your vote has been permanently recorded on the blockchain. Check your email for confirmation.",
       });
 
       // Store vote hash in session for confirmation page

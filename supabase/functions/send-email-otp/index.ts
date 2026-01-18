@@ -10,6 +10,7 @@ interface EmailOTPRequest {
   otp: string;
   voterName?: string;
   voterId?: string;
+  phoneNumber?: string;
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -29,7 +30,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { email, otp, voterName, voterId } = await req.json() as EmailOTPRequest;
+    const { email, otp, voterName, voterId, phoneNumber } = await req.json() as EmailOTPRequest;
 
     console.log("Sending OTP email to:", email);
 
@@ -68,11 +69,12 @@ serve(async (req: Request): Promise<Response> => {
             <p style="color: #71717a; margin: 0 0 8px 0; font-size: 14px;">⏱️ This code is valid for <strong>5 minutes</strong></p>
             <p style="color: #71717a; margin: 0 0 24px 0; font-size: 14px;">🔒 Do not share this code with anyone</p>
             
-            ${voterId ? `
-            <div style="background-color: #f0fdf4; border-left: 4px solid #138808; padding: 12px 16px; border-radius: 0 8px 8px 0;">
-              <p style="color: #166534; margin: 0; font-size: 14px;">Voter ID: <strong>${voterId}</strong></p>
+            <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+              <p style="color: #0c4a6e; margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">📋 Your Registration Details</p>
+              ${voterId ? `<p style="color: #0369a1; margin: 0 0 4px 0; font-size: 13px;">Voter ID: <strong>${voterId}</strong></p>` : ''}
+              ${phoneNumber ? `<p style="color: #0369a1; margin: 0 0 4px 0; font-size: 13px;">Phone: <strong>${phoneNumber}</strong></p>` : ''}
+              <p style="color: #0369a1; margin: 0; font-size: 13px;">Email: <strong>${email}</strong></p>
             </div>
-            ` : ''}
           </div>
           
           <div style="background-color: #fafafa; padding: 20px 24px; border-top: 1px solid #e4e4e7;">
