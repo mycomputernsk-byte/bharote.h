@@ -133,8 +133,8 @@ const VoterVerification = () => {
       const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-      // Store OTP in database
-      const { error } = await supabase
+      // Store OTP in database first
+      const { error: dbError } = await supabase
         .from("voters")
         .update({
           email_otp_code: generatedOtp,
@@ -143,20 +143,36 @@ const VoterVerification = () => {
         })
         .eq("id", voter.id);
 
+      if (dbError) throw dbError;
+
+      // Call the Resend email edge function
+      const { data, error } = await supabase.functions.invoke('send-email-otp', {
+        body: {
+          email: voter.email,
+          otp: generatedOtp,
+          voterName: voter.full_name,
+          voterId: voter.voter_id
+        }
+      });
+
       if (error) throw error;
 
-      // In production, this would send via email service
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to send email');
+      }
+
       toast({
-        title: "Email OTP Sent!",
-        description: `For demo: Your OTP is ${generatedOtp}. In production, this would be sent to ${voter.email}`,
+        title: "OTP Sent!",
+        description: `A 6-digit code has been sent to ${voter.email}`,
       });
 
       setOtpSent(true);
       setCountdown(60);
     } catch (error: any) {
+      console.error('Email OTP Error:', error);
       toast({
         title: "Failed to send OTP",
-        description: error.message,
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     } finally {
