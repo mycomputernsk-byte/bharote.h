@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Vote, User, LogOut, BarChart3, Database, Menu, X } from "lucide-react";
+import { Vote, User, LogOut, BarChart3, Database, Menu, X, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -12,19 +12,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const ADMIN_EMAIL = "haniskholmes@gmail.com";
+
 const BharoteNavbar = () => {
   const [user, setUser] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+      setIsAdmin(session?.user?.email === ADMIN_EMAIL && !!session?.user?.email_confirmed_at);
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      setIsAdmin(session?.user?.email === ADMIN_EMAIL && !!session?.user?.email_confirmed_at);
     });
 
     return () => subscription.unsubscribe();
@@ -52,13 +57,24 @@ const BharoteNavbar = () => {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-6">
-            <Link 
-              to="/results" 
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <BarChart3 className="w-4 h-4" />
-              Live Results
-            </Link>
+            {isAdmin && (
+              <>
+                <Link 
+                  to="/results" 
+                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Live Results
+                </Link>
+                <Link 
+                  to="/admin" 
+                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Shield className="w-4 h-4" />
+                  Admin
+                </Link>
+              </>
+            )}
             <Link 
               to="/blockchain" 
               className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
@@ -118,14 +134,26 @@ const BharoteNavbar = () => {
         {isMenuOpen && (
           <div className="md:hidden py-4 border-t border-border">
             <div className="flex flex-col gap-4">
-              <Link 
-                to="/results" 
-                className="flex items-center gap-2 px-4 py-2 text-muted-foreground hover:text-foreground"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                <BarChart3 className="w-4 h-4" />
-                Live Results
-              </Link>
+              {isAdmin && (
+                <>
+                  <Link 
+                    to="/results" 
+                    className="flex items-center gap-2 px-4 py-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    Live Results
+                  </Link>
+                  <Link 
+                    to="/admin" 
+                    className="flex items-center gap-2 px-4 py-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Shield className="w-4 h-4" />
+                    Admin
+                  </Link>
+                </>
+              )}
               <Link 
                 to="/blockchain" 
                 className="flex items-center gap-2 px-4 py-2 text-muted-foreground hover:text-foreground"

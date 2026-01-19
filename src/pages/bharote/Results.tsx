@@ -42,28 +42,28 @@ const Results = () => {
         
         if (!session) {
           toast.error("Please login to access results");
-          navigate("/bharote/auth");
+          navigate("/auth");
           return;
         }
 
         // Check if user email matches admin email
         if (session.user.email !== ADMIN_EMAIL) {
           toast.error("Access denied. Only admin can view results.");
-          navigate("/bharote");
+          navigate("/");
           return;
         }
 
         // Check if email is verified
         if (!session.user.email_confirmed_at) {
           toast.error("Please verify your email first");
-          navigate("/bharote/auth");
+          navigate("/auth");
           return;
         }
 
         setIsAuthorized(true);
       } catch (error) {
         console.error("Auth check error:", error);
-        navigate("/bharote/auth");
+        navigate("/auth");
       } finally {
         setIsCheckingAuth(false);
       }
@@ -140,7 +140,7 @@ const Results = () => {
             <p className="text-muted-foreground mb-6">
               Only authorized administrators can view election results.
             </p>
-            <Button onClick={() => navigate("/bharote")}>
+            <Button onClick={() => navigate("/")}>
               Return Home
             </Button>
           </div>
