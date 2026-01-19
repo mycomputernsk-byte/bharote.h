@@ -15,7 +15,9 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
-  Database
+  Database,
+  RotateCcw,
+  ShieldAlert
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { 
@@ -34,6 +36,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface VoteCount {
   party_id: string;
@@ -57,9 +69,12 @@ interface Voter {
   voted_at: string | null;
 }
 
+const ADMIN_EMAIL = "haniskholmes@gmail.com";
+
 const AdminDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [stats, setStats] = useState({
     totalVoters: 0,
     verifiedVoters: 0,
@@ -69,37 +84,65 @@ const AdminDashboard = () => {
   const [voteCounts, setVoteCounts] = useState<VoteCount[]>([]);
   const [recentVoters, setRecentVoters] = useState<Voter[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const fetchData = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+  // Check admin authorization first
+  useEffect(() => {
+    const checkAuthorization = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          toast({
+            title: "Authentication Required",
+            description: "Please login to access admin dashboard.",
+            variant: "destructive",
+          });
+          navigate("/auth");
+          return;
+        }
+
+        // Check if user email matches admin email
+        if (session.user.email !== ADMIN_EMAIL) {
+          toast({
+            title: "Access Denied",
+            description: "Only admin can access this dashboard.",
+            variant: "destructive",
+          });
+          navigate("/");
+          return;
+        }
+
+        // Check if email is verified
+        if (!session.user.email_confirmed_at) {
+          toast({
+            title: "Email Verification Required",
+            description: "Please verify your email first.",
+            variant: "destructive",
+          });
+          navigate("/auth");
+          return;
+        }
+
+        setIsAdmin(true);
+      } catch (error) {
+        console.error("Auth check error:", error);
         navigate("/auth");
-        return;
+      } finally {
+        setIsCheckingAuth(false);
       }
+    };
 
-      // Check if user is admin
-      const { data: roleData } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id)
-        .eq("role", "admin")
-        .single();
+    checkAuthorization();
+  }, [navigate, toast]);
 
-      if (!roleData) {
-        toast({
-          title: "Access Denied",
-          description: "You don't have admin privileges.",
-          variant: "destructive",
-        });
-        navigate("/");
-        return;
-      }
-
-      setIsAdmin(true);
-
+  const fetchData = async () => {
+    if (!isAdmin) return;
+    
+    try {
       // Fetch voters stats
       const { data: votersData, count: totalCount } = await supabase
         .from("voters")
@@ -142,37 +185,78 @@ const AdminDashboard = () => {
     }
   };
 
+  // Reset voting only (keeps registrations)
+  const handleResetVoting = async () => {
+    setIsResetting(true);
+    try {
+      // Delete all votes
+      const { error: votesError } = await supabase
+        .from("votes")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all
+
+      if (votesError) throw votesError;
+
+      // Reset has_voted and voted_at for all voters
+      const { error: votersError } = await supabase
+        .from("voters")
+        .update({ has_voted: false, voted_at: null })
+        .neq("id", "00000000-0000-0000-0000-000000000000"); // Update all
+
+      if (votersError) throw votersError;
+
+      toast({
+        title: "Voting Reset",
+        description: "All votes have been cleared. Voter registrations remain intact.",
+      });
+
+      await fetchData();
+    } catch (error: any) {
+      console.error("Reset error:", error);
+      toast({
+        title: "Reset Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsResetting(false);
+      setShowResetDialog(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
+    if (isAdmin) {
+      fetchData();
 
-    // Set up realtime subscription for votes
-    const votesChannel = supabase
-      .channel('admin-votes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'votes' },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
+      // Set up realtime subscription for votes
+      const votesChannel = supabase
+        .channel('admin-votes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'votes' },
+          () => {
+            fetchData();
+          }
+        )
+        .subscribe();
 
-    const votersChannel = supabase
-      .channel('admin-voters')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'voters' },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
+      const votersChannel = supabase
+        .channel('admin-voters')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'voters' },
+          () => {
+            fetchData();
+          }
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(votesChannel);
-      supabase.removeChannel(votersChannel);
-    };
-  }, []);
+      return () => {
+        supabase.removeChannel(votesChannel);
+        supabase.removeChannel(votersChannel);
+      };
+    }
+  }, [isAdmin]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -183,6 +267,34 @@ const AdminDashboard = () => {
       description: "Dashboard data updated",
     });
   };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-background">
+        <BharoteNavbar />
+        <div className="container mx-auto px-4 py-20">
+          <div className="max-w-md mx-auto text-center">
+            <ShieldAlert className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+            <p className="text-muted-foreground mb-6">
+              Only authorized administrators can access this dashboard.
+            </p>
+            <Button onClick={() => navigate("/")}>
+              Return Home
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -195,10 +307,6 @@ const AdminDashboard = () => {
     );
   }
 
-  if (!isAdmin) {
-    return null;
-  }
-
   const totalVotes = voteCounts.reduce((sum, v) => sum + Number(v.vote_count), 0);
   const turnoutPercentage = stats.verifiedVoters > 0 
     ? Math.round((stats.votedCount / stats.verifiedVoters) * 100) 
@@ -209,19 +317,29 @@ const AdminDashboard = () => {
       <BharoteNavbar />
       
       <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-muted-foreground">Real-time election monitoring</p>
+            <p className="text-muted-foreground">Real-time election monitoring • {ADMIN_EMAIL}</p>
           </div>
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => setShowResetDialog(true)}
+              disabled={isResetting}
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset Voting
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -438,6 +556,54 @@ const AdminDashboard = () => {
           All votes secured by SHA-256 blockchain • Real-time updates enabled
         </div>
       </div>
+
+      {/* Reset Voting Confirmation Dialog */}
+      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Reset All Votes
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4">
+              <p>This action will:</p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Delete all votes from the blockchain</li>
+                <li>Reset all voters' voting status</li>
+                <li>Allow voters to cast their votes again</li>
+              </ul>
+              <p className="font-semibold text-destructive">
+                Voter registrations will NOT be affected.
+              </p>
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                <p className="text-sm font-medium">
+                  This action cannot be undone!
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleResetVoting}
+              disabled={isResetting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isResetting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Reset Voting
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
