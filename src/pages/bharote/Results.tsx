@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import BharoteNavbar from "@/components/bharote/BharoteNavbar";
 import { 
@@ -7,10 +8,12 @@ import {
   Users,
   TrendingUp,
   Loader2,
-  Award
+  Award,
+  ShieldAlert
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 interface VoteCount {
   party_id: string;
@@ -21,13 +24,57 @@ interface VoteCount {
   vote_count: number;
 }
 
+const ADMIN_EMAIL = "haniskholmes@gmail.com";
+
 const Results = () => {
+  const navigate = useNavigate();
   const [results, setResults] = useState<VoteCount[]>([]);
   const [totalVotes, setTotalVotes] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const checkAuthorization = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          toast.error("Please login to access results");
+          navigate("/bharote/auth");
+          return;
+        }
+
+        // Check if user email matches admin email
+        if (session.user.email !== ADMIN_EMAIL) {
+          toast.error("Access denied. Only admin can view results.");
+          navigate("/bharote");
+          return;
+        }
+
+        // Check if email is verified
+        if (!session.user.email_confirmed_at) {
+          toast.error("Please verify your email first");
+          navigate("/bharote/auth");
+          return;
+        }
+
+        setIsAuthorized(true);
+      } catch (error) {
+        console.error("Auth check error:", error);
+        navigate("/bharote/auth");
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    };
+
+    checkAuthorization();
+  }, [navigate]);
 
   const fetchResults = async () => {
+    if (!isAuthorized) return;
+    
     setIsLoading(true);
     try {
       const { data, error } = await supabase.rpc('get_vote_counts');
@@ -47,22 +94,24 @@ const Results = () => {
   };
 
   useEffect(() => {
-    fetchResults();
+    if (isAuthorized) {
+      fetchResults();
 
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('votes_changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'votes' },
-        () => fetchResults()
-      )
-      .subscribe();
+      // Set up realtime subscription
+      const channel = supabase
+        .channel('votes_changes')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'votes' },
+          () => fetchResults()
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAuthorized]);
 
   const getPercentage = (count: number) => {
     if (totalVotes === 0) return 0;
@@ -71,6 +120,34 @@ const Results = () => {
 
   const sortedResults = [...results].sort((a, b) => Number(b.vote_count) - Number(a.vote_count));
   const leader = sortedResults[0];
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-background">
+        <BharoteNavbar />
+        <div className="container mx-auto px-4 py-20">
+          <div className="max-w-md mx-auto text-center">
+            <ShieldAlert className="w-16 h-16 text-destructive mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Access Denied</h1>
+            <p className="text-muted-foreground mb-6">
+              Only authorized administrators can view election results.
+            </p>
+            <Button onClick={() => navigate("/bharote")}>
+              Return Home
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -86,7 +163,7 @@ const Results = () => {
                 Live Election Results
               </h1>
               <p className="text-muted-foreground">
-                Real-time vote counts from the blockchain
+                Real-time vote counts from the blockchain • Admin View
               </p>
             </div>
             <Button 
