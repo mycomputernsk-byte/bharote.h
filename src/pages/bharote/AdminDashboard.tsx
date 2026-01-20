@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import BharoteNavbar from "@/components/bharote/BharoteNavbar";
 import { 
@@ -21,7 +22,10 @@ import {
   Download,
   Bell,
   UserPlus,
-  X
+  X,
+  Search,
+  Filter,
+  LineChart
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -50,6 +54,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from "recharts";
 
 interface VoteCount {
   party_id: string;
@@ -81,6 +102,12 @@ interface Notification {
   voterName?: string;
 }
 
+interface ChartDataPoint {
+  date: string;
+  registrations: number;
+  votes: number;
+}
+
 const ADMIN_EMAIL = "haniskholmes@gmail.com";
 
 const AdminDashboard = () => {
@@ -101,14 +128,44 @@ const AdminDashboard = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [votedFilter, setVotedFilter] = useState<string>("all");
+  
   const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   // Initialize notification sound
   useEffect(() => {
-    notificationAudioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleig0NpGv3chqHQo4l9DeqVkdEjeg1t2cUBcQMZ/X35VJFRMxoNfflEkWFjKi2N+XSxYWNKPY35dLFhY0o9jfl0sWFjSj2N+XSxYW');
+    notificationAudioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleig0NpGv3chqHQo4l9DeqVkdEjeg1t2cUBcQMZ/X35VJFRMxoNfflEkWFjKi2N+XSxYWNKPY35dLFhY0o9jfl0sWFjSj2N+XSxYWNKPY35dLFhY0o9jfl0sWFjSj2N+XSxYW');
   }, []);
+
+  // Filter voters
+  const filteredVoters = useMemo(() => {
+    return allVoters.filter(voter => {
+      // Search filter
+      const matchesSearch = searchQuery === "" || 
+        voter.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        voter.voter_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        voter.phone_number.includes(searchQuery) ||
+        (voter.email && voter.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        voter.constituency.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Status filter
+      const matchesStatus = statusFilter === "all" || voter.verification_status === statusFilter;
+      
+      // Voted filter
+      const matchesVoted = votedFilter === "all" || 
+        (votedFilter === "voted" && voter.has_voted) ||
+        (votedFilter === "not_voted" && !voter.has_voted);
+      
+      return matchesSearch && matchesStatus && matchesVoted;
+    });
+  }, [allVoters, searchQuery, statusFilter, votedFilter]);
 
   // Add notification
   const addNotification = (type: 'voter' | 'vote', message: string, voterName?: string) => {
@@ -130,6 +187,33 @@ const AdminDashboard = () => {
   // Remove notification
   const removeNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  // Send admin email notification
+  const sendAdminNotification = async (voter: any) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/notify-admin-registration`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          voterName: voter.full_name,
+          voterId: voter.voter_id,
+          email: voter.email,
+          phoneNumber: voter.phone_number,
+          constituency: voter.constituency,
+          registeredAt: voter.created_at,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to send admin notification');
+      }
+    } catch (error) {
+      console.error('Error sending admin notification:', error);
+    }
   };
 
   // Check admin authorization first
@@ -182,6 +266,35 @@ const AdminDashboard = () => {
     checkAuthorization();
   }, [navigate, toast]);
 
+  // Generate chart data from voters
+  const generateChartData = (voters: Voter[]) => {
+    const last7Days: ChartDataPoint[] = [];
+    const today = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const displayDate = date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+      
+      const registrations = voters.filter(v => 
+        v.created_at.split('T')[0] === dateStr
+      ).length;
+      
+      const votes = voters.filter(v => 
+        v.voted_at && v.voted_at.split('T')[0] === dateStr
+      ).length;
+      
+      last7Days.push({
+        date: displayDate,
+        registrations,
+        votes,
+      });
+    }
+    
+    return last7Days;
+  };
+
   const fetchData = async () => {
     if (!isAdmin) return;
     
@@ -203,8 +316,11 @@ const AdminDashboard = () => {
           pendingVerification: pending,
         });
 
-        // Store all voters for export
+        // Store all voters for export and filtering
         setAllVoters(votersData);
+
+        // Generate chart data
+        setChartData(generateChartData(votersData));
 
         // Get recent voters (last 10)
         const sorted = [...votersData].sort((a, b) => 
@@ -235,6 +351,7 @@ const AdminDashboard = () => {
   const handleExportCSV = () => {
     setIsExporting(true);
     try {
+      const dataToExport = filteredVoters.length > 0 ? filteredVoters : allVoters;
       const headers = [
         'Voter ID',
         'Full Name',
@@ -247,7 +364,7 @@ const AdminDashboard = () => {
         'Created At'
       ];
 
-      const csvData = allVoters.map(voter => [
+      const csvData = dataToExport.map(voter => [
         voter.voter_id,
         voter.full_name,
         voter.email || '',
@@ -272,7 +389,7 @@ const AdminDashboard = () => {
 
       toast({
         title: "Export Successful",
-        description: `Exported ${allVoters.length} voter records to CSV.`,
+        description: `Exported ${dataToExport.length} voter records to CSV.`,
       });
     } catch (error: any) {
       toast({
@@ -371,6 +488,8 @@ const AdminDashboard = () => {
               `New voter registered!`,
               payload.new.full_name
             );
+            // Send admin email notification
+            sendAdminNotification(payload.new);
             fetchData();
           }
         )
@@ -616,6 +735,74 @@ const AdminDashboard = () => {
           </motion.div>
         </div>
 
+        {/* Activity Chart */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LineChart className="w-5 h-5" />
+              Registration & Voting Activity
+            </CardTitle>
+            <CardDescription>
+              Last 7 days activity overview
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="colorRegistrations" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#228B22" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#228B22" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorVotes" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#FF9933" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#FF9933" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="date" 
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <YAxis 
+                    className="text-xs"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    allowDecimals={false}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--background))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="registrations"
+                    name="Registrations"
+                    stroke="#228B22"
+                    fillOpacity={1}
+                    fill="url(#colorRegistrations)"
+                    strokeWidth={2}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="votes"
+                    name="Votes"
+                    stroke="#FF9933"
+                    fillOpacity={1}
+                    fill="url(#colorVotes)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Turnout Progress */}
         <Card className="mb-8">
           <CardHeader>
@@ -638,7 +825,7 @@ const AdminDashboard = () => {
           </CardContent>
         </Card>
 
-        <div className="grid lg:grid-cols-2 gap-8">
+        <div className="grid lg:grid-cols-2 gap-8 mb-8">
           {/* Vote Distribution */}
           <Card>
             <CardHeader>
@@ -760,6 +947,151 @@ const AdminDashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Full Voter List with Search and Filters */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              All Voters
+            </CardTitle>
+            <CardDescription>
+              Search and filter all registered voters
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Search and Filters */}
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, voter ID, email, phone, or constituency..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[160px]">
+                    <Filter className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="verified">Verified</SelectItem>
+                    <SelectItem value="otp_sent">OTP Sent</SelectItem>
+                    <SelectItem value="unverified">Unverified</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={votedFilter} onValueChange={setVotedFilter}>
+                  <SelectTrigger className="w-[140px]">
+                    <Vote className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Voted" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="voted">Voted</SelectItem>
+                    <SelectItem value="not_voted">Not Voted</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Results count */}
+            <div className="text-sm text-muted-foreground mb-4">
+              Showing {filteredVoters.length} of {allVoters.length} voters
+            </div>
+
+            {/* Voter Table */}
+            <div className="relative overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Voter</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Constituency</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Voted</TableHead>
+                    <TableHead>Registered</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredVoters.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No voters found matching your criteria
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredVoters.slice(0, 50).map((voter) => (
+                      <TableRow key={voter.id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{voter.full_name}</div>
+                            <div className="text-xs text-muted-foreground font-mono">{voter.voter_id}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div>{voter.phone_number}</div>
+                            {voter.email && (
+                              <div className="text-xs text-muted-foreground">{voter.email}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm">{voter.constituency}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                            voter.verification_status === 'verified' 
+                              ? 'bg-accent/10 text-accent' 
+                              : voter.verification_status === 'otp_sent'
+                              ? 'bg-yellow-500/10 text-yellow-600'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>
+                            {voter.verification_status === 'verified' ? (
+                              <CheckCircle2 className="w-3 h-3" />
+                            ) : voter.verification_status === 'otp_sent' ? (
+                              <Clock className="w-3 h-3" />
+                            ) : (
+                              <AlertTriangle className="w-3 h-3" />
+                            )}
+                            {voter.verification_status}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {voter.has_voted ? (
+                            <div className="text-accent">
+                              <div className="flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Yes
+                              </div>
+                              {voter.voted_at && (
+                                <div className="text-xs text-muted-foreground">
+                                  {new Date(voter.voted_at).toLocaleDateString()}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">No</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(voter.created_at).toLocaleDateString()}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+            {filteredVoters.length > 50 && (
+              <p className="text-sm text-muted-foreground mt-4 text-center">
+                Showing first 50 results. Export CSV for full data.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Blockchain Badge */}
         <div className="mt-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
