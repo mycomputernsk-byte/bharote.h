@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,13 @@ import {
   AlertTriangle,
   Database,
   RotateCcw,
-  ShieldAlert
+  ShieldAlert,
+  Download,
+  Bell,
+  UserPlus,
+  X
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   Card,
   CardContent,
@@ -69,6 +73,14 @@ interface Voter {
   voted_at: string | null;
 }
 
+interface Notification {
+  id: string;
+  type: 'voter' | 'vote';
+  message: string;
+  timestamp: Date;
+  voterName?: string;
+}
+
 const ADMIN_EMAIL = "haniskholmes@gmail.com";
 
 const AdminDashboard = () => {
@@ -83,11 +95,42 @@ const AdminDashboard = () => {
   });
   const [voteCounts, setVoteCounts] = useState<VoteCount[]>([]);
   const [recentVoters, setRecentVoters] = useState<Voter[]>([]);
+  const [allVoters, setAllVoters] = useState<Voter[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Initialize notification sound
+  useEffect(() => {
+    notificationAudioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleig0NpGv3chqHQo4l9DeqVkdEjeg1t2cUBcQMZ/X35VJFRMxoNfflEkWFjKi2N+XSxYWNKPY35dLFhY0o9jfl0sWFjSj2N+XSxYW');
+  }, []);
+
+  // Add notification
+  const addNotification = (type: 'voter' | 'vote', message: string, voterName?: string) => {
+    const newNotification: Notification = {
+      id: Date.now().toString(),
+      type,
+      message,
+      timestamp: new Date(),
+      voterName,
+    };
+    setNotifications(prev => [newNotification, ...prev].slice(0, 10));
+    
+    // Play sound
+    if (notificationAudioRef.current) {
+      notificationAudioRef.current.play().catch(() => {});
+    }
+  };
+
+  // Remove notification
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
 
   // Check admin authorization first
   useEffect(() => {
@@ -160,6 +203,9 @@ const AdminDashboard = () => {
           pendingVerification: pending,
         });
 
+        // Store all voters for export
+        setAllVoters(votersData);
+
         // Get recent voters (last 10)
         const sorted = [...votersData].sort((a, b) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -182,6 +228,60 @@ const AdminDashboard = () => {
         description: "Failed to load dashboard data",
         variant: "destructive",
       });
+    }
+  };
+
+  // Export voters to CSV
+  const handleExportCSV = () => {
+    setIsExporting(true);
+    try {
+      const headers = [
+        'Voter ID',
+        'Full Name',
+        'Email',
+        'Phone Number',
+        'Constituency',
+        'Verification Status',
+        'Has Voted',
+        'Voted At',
+        'Created At'
+      ];
+
+      const csvData = allVoters.map(voter => [
+        voter.voter_id,
+        voter.full_name,
+        voter.email || '',
+        voter.phone_number,
+        voter.constituency,
+        voter.verification_status,
+        voter.has_voted ? 'Yes' : 'No',
+        voter.voted_at ? new Date(voter.voted_at).toLocaleString() : '',
+        new Date(voter.created_at).toLocaleString()
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `voters_export_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+
+      toast({
+        title: "Export Successful",
+        description: `Exported ${allVoters.length} voter records to CSV.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Export Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -228,9 +328,28 @@ const AdminDashboard = () => {
     if (isAdmin) {
       fetchData();
 
-      // Set up realtime subscription for votes
+      // Set up realtime subscription for votes with notifications
       const votesChannel = supabase
         .channel('admin-votes')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'votes' },
+          async (payload) => {
+            // Fetch voter name for notification
+            const { data: voterData } = await supabase
+              .from('voters')
+              .select('full_name')
+              .eq('id', payload.new.voter_id)
+              .single();
+            
+            addNotification(
+              'vote',
+              `New vote cast!`,
+              voterData?.full_name
+            );
+            fetchData();
+          }
+        )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'votes' },
@@ -240,12 +359,32 @@ const AdminDashboard = () => {
         )
         .subscribe();
 
+      // Set up realtime subscription for voters with notifications
       const votersChannel = supabase
         .channel('admin-voters')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'voters' },
-          () => {
+          { event: 'INSERT', schema: 'public', table: 'voters' },
+          (payload) => {
+            addNotification(
+              'voter',
+              `New voter registered!`,
+              payload.new.full_name
+            );
+            fetchData();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'voters' },
+          (payload) => {
+            if (payload.new.verification_status === 'verified' && payload.old.verification_status !== 'verified') {
+              addNotification(
+                'voter',
+                `Voter verified!`,
+                payload.new.full_name
+              );
+            }
             fetchData();
           }
         )
@@ -316,13 +455,71 @@ const AdminDashboard = () => {
     <div className="min-h-screen bg-background">
       <BharoteNavbar />
       
+      {/* Notification Toast Area */}
+      <div className="fixed top-20 right-4 z-50 space-y-2 max-w-sm">
+        <AnimatePresence>
+          {notifications.map((notification) => (
+            <motion.div
+              key={notification.id}
+              initial={{ opacity: 0, x: 100, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.9 }}
+              className={`p-4 rounded-lg shadow-lg border backdrop-blur-sm ${
+                notification.type === 'vote' 
+                  ? 'bg-primary/10 border-primary/30' 
+                  : 'bg-accent/10 border-accent/30'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`p-2 rounded-full ${
+                  notification.type === 'vote' ? 'bg-primary/20' : 'bg-accent/20'
+                }`}>
+                  {notification.type === 'vote' ? (
+                    <Vote className="w-4 h-4 text-primary" />
+                  ) : (
+                    <UserPlus className="w-4 h-4 text-accent" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">{notification.message}</p>
+                  {notification.voterName && (
+                    <p className="text-xs text-muted-foreground">{notification.voterName}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {notification.timestamp.toLocaleTimeString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => removeNotification(notification.id)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+      
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold">Admin Dashboard</h1>
             <p className="text-muted-foreground">Real-time election monitoring • {ADMIN_EMAIL}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button 
+              variant="outline" 
+              onClick={handleExportCSV}
+              disabled={isExporting || allVoters.length === 0}
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              Export CSV
+            </Button>
             <Button 
               variant="outline" 
               onClick={handleRefresh}
@@ -341,6 +538,20 @@ const AdminDashboard = () => {
             </Button>
           </div>
         </div>
+
+        {/* Notifications Badge */}
+        {notifications.length > 0 && (
+          <div className="mb-4 p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center gap-2">
+            <Bell className="w-5 h-5 text-primary" />
+            <span className="text-sm font-medium">{notifications.length} recent notification{notifications.length > 1 ? 's' : ''}</span>
+            <button 
+              onClick={() => setNotifications([])}
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
