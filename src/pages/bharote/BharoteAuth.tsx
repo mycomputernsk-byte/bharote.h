@@ -5,16 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Vote, Mail, Lock, User, ArrowLeft, Loader2 } from "lucide-react";
+import { Vote, Mail, Lock, User, ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 
 const BharoteAuth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [showResendOption, setShowResendOption] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [resendEmail, setResendEmail] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -53,9 +56,10 @@ const BharoteAuth = () => {
         if (error) throw error;
         toast({ 
           title: "Registration successful!", 
-          description: "Please complete your voter registration.",
+          description: "Please check your email for verification link, then complete voter registration.",
         });
-        navigate("/register");
+        setShowResendOption(true);
+        setResendEmail(email);
       }
     } catch (error: any) {
       toast({
@@ -65,6 +69,43 @@ const BharoteAuth = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!resendEmail) {
+      toast({
+        title: "Email Required",
+        description: "Please enter your email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsResending(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: resendEmail,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Verification Email Sent",
+        description: "Please check your inbox for the verification link.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -211,6 +252,40 @@ const BharoteAuth = () => {
               )}
             </Button>
           </form>
+
+          {/* Resend Verification Email Section */}
+          <div className="mt-6 p-4 rounded-lg bg-muted/50 border border-border">
+            <p className="text-sm text-muted-foreground mb-3">
+              Didn't receive verification email?
+            </p>
+            <div className="flex gap-2">
+              <Input
+                type="email"
+                placeholder="Enter your email"
+                value={resendEmail}
+                onChange={(e) => setResendEmail(e.target.value)}
+                className="h-10"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleResendVerification}
+                disabled={isResending}
+                className="shrink-0"
+              >
+                {isResending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+            {showResendOption && (
+              <p className="text-xs text-accent mt-2">
+                Check your spam folder if you don't see the email.
+              </p>
+            )}
+          </div>
 
           <div className="mt-6 text-center">
             <p className="text-muted-foreground">
