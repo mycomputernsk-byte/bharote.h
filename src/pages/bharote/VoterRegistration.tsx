@@ -231,6 +231,16 @@ const VoterRegistration = () => {
       
       const voterId = voterIdData;
 
+      // Try WebAuthn biometric registration if supported
+      let webAuthnCredHash: string | null = null;
+      if (webAuthnSupported && !biometricRegistered) {
+        webAuthnCredHash = await registerWebAuthn(user.id, formData.fullName);
+        if (webAuthnCredHash) {
+          setBiometricHash(webAuthnCredHash);
+          setBiometricRegistered(true);
+        }
+      }
+
       const { error } = await supabase.from("voters").insert({
         user_id: user.id,
         full_name: formData.fullName,
@@ -243,6 +253,8 @@ const VoterRegistration = () => {
         voter_id: voterId,
         verification_status: "unverified",
         device_fingerprint_hash: fingerprintHash,
+        biometric_registered: !!webAuthnCredHash,
+        webauthn_credential_hash: webAuthnCredHash,
       });
 
       if (error) throw error;
