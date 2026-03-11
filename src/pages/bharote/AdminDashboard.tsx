@@ -1035,7 +1035,7 @@ const AdminDashboard = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredVoters.slice(0, 50).map((voter) => (
+                    paginatedVoters.map((voter) => (
                       <TableRow key={voter.id}>
                         <TableCell>
                           <div>
