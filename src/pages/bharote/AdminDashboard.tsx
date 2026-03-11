@@ -130,10 +130,12 @@ const AdminDashboard = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   
-  // Filter states
+  // Filter and pagination states
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [votedFilter, setVotedFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   
   const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
