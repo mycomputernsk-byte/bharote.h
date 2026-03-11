@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import BharoteNavbar from "@/components/bharote/BharoteNavbar";
 import { useDeviceFingerprint } from "@/hooks/useDeviceFingerprint";
+import { useWebAuthn } from "@/hooks/useWebAuthn";
 import {
   Select,
   SelectContent,
