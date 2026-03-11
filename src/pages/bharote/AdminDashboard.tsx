@@ -149,7 +149,6 @@ const AdminDashboard = () => {
   // Filter voters
   const filteredVoters = useMemo(() => {
     return allVoters.filter(voter => {
-      // Search filter
       const matchesSearch = searchQuery === "" || 
         voter.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         voter.voter_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -157,10 +156,8 @@ const AdminDashboard = () => {
         (voter.email && voter.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
         voter.constituency.toLowerCase().includes(searchQuery.toLowerCase());
       
-      // Status filter
       const matchesStatus = statusFilter === "all" || voter.verification_status === statusFilter;
       
-      // Voted filter
       const matchesVoted = votedFilter === "all" || 
         (votedFilter === "voted" && voter.has_voted) ||
         (votedFilter === "not_voted" && !voter.has_voted);
@@ -168,6 +165,18 @@ const AdminDashboard = () => {
       return matchesSearch && matchesStatus && matchesVoted;
     });
   }, [allVoters, searchQuery, statusFilter, votedFilter]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, votedFilter]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredVoters.length / ITEMS_PER_PAGE);
+  const paginatedVoters = filteredVoters.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   // Add notification
   const addNotification = (type: 'voter' | 'vote', message: string, voterName?: string) => {
