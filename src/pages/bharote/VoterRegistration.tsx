@@ -64,6 +64,9 @@ const VoterRegistration = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { hash: fingerprintHash, isLoading: fingerprintLoading } = useDeviceFingerprint();
+  const { isSupported: webAuthnSupported, register: registerWebAuthn, isLoading: webAuthnLoading, error: webAuthnError } = useWebAuthn();
+  const [biometricHash, setBiometricHash] = useState<string | null>(null);
+  const [biometricRegistered, setBiometricRegistered] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
