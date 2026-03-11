@@ -130,10 +130,12 @@ const AdminDashboard = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   
-  // Filter states
+  // Filter and pagination states
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [votedFilter, setVotedFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   
   const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
   const navigate = useNavigate();
@@ -147,7 +149,6 @@ const AdminDashboard = () => {
   // Filter voters
   const filteredVoters = useMemo(() => {
     return allVoters.filter(voter => {
-      // Search filter
       const matchesSearch = searchQuery === "" || 
         voter.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         voter.voter_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -155,10 +156,8 @@ const AdminDashboard = () => {
         (voter.email && voter.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
         voter.constituency.toLowerCase().includes(searchQuery.toLowerCase());
       
-      // Status filter
       const matchesStatus = statusFilter === "all" || voter.verification_status === statusFilter;
       
-      // Voted filter
       const matchesVoted = votedFilter === "all" || 
         (votedFilter === "voted" && voter.has_voted) ||
         (votedFilter === "not_voted" && !voter.has_voted);
@@ -166,6 +165,18 @@ const AdminDashboard = () => {
       return matchesSearch && matchesStatus && matchesVoted;
     });
   }, [allVoters, searchQuery, statusFilter, votedFilter]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, votedFilter]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredVoters.length / ITEMS_PER_PAGE);
+  const paginatedVoters = filteredVoters.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   // Add notification
   const addNotification = (type: 'voter' | 'vote', message: string, voterName?: string) => {
@@ -1024,7 +1035,7 @@ const AdminDashboard = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredVoters.slice(0, 50).map((voter) => (
+                    paginatedVoters.map((voter) => (
                       <TableRow key={voter.id}>
                         <TableCell>
                           <div>
@@ -1085,10 +1096,71 @@ const AdminDashboard = () => {
                 </TableBody>
               </Table>
             </div>
-            {filteredVoters.length > 50 && (
-              <p className="text-sm text-muted-foreground mt-4 text-center">
-                Showing first 50 results. Export CSV for full data.
-              </p>
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Page {currentPage} of {totalPages} ({filteredVoters.length} voters)
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                  >
+                    First
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  {/* Page number buttons */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-9"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                  >
+                    Last
+                  </Button>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

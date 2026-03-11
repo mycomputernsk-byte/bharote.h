@@ -118,6 +118,51 @@ export type Database = {
         }
         Relationships: []
       }
+      party_constituency_mapping: {
+        Row: {
+          constituency_id: string | null
+          created_at: string | null
+          district: string | null
+          id: string
+          is_active: boolean | null
+          party_id: string
+          state: string
+        }
+        Insert: {
+          constituency_id?: string | null
+          created_at?: string | null
+          district?: string | null
+          id?: string
+          is_active?: boolean | null
+          party_id: string
+          state: string
+        }
+        Update: {
+          constituency_id?: string | null
+          created_at?: string | null
+          district?: string | null
+          id?: string
+          is_active?: boolean | null
+          party_id?: string
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "party_constituency_mapping_constituency_id_fkey"
+            columns: ["constituency_id"]
+            isOneToOne: false
+            referencedRelation: "constituencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "party_constituency_mapping_party_id_fkey"
+            columns: ["party_id"]
+            isOneToOne: false
+            referencedRelation: "political_parties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       political_parties: {
         Row: {
           color: string
@@ -241,6 +286,7 @@ export type Database = {
       voters: {
         Row: {
           address: string
+          biometric_registered: boolean | null
           constituency: string
           constituency_id: string | null
           created_at: string
@@ -262,9 +308,12 @@ export type Database = {
           verification_status: Database["public"]["Enums"]["verification_status"]
           voted_at: string | null
           voter_id: string
+          webauthn_credential_hash: string | null
+          webauthn_credential_id: string | null
         }
         Insert: {
           address: string
+          biometric_registered?: boolean | null
           constituency: string
           constituency_id?: string | null
           created_at?: string
@@ -286,9 +335,12 @@ export type Database = {
           verification_status?: Database["public"]["Enums"]["verification_status"]
           voted_at?: string | null
           voter_id: string
+          webauthn_credential_hash?: string | null
+          webauthn_credential_id?: string | null
         }
         Update: {
           address?: string
+          biometric_registered?: boolean | null
           constituency?: string
           constituency_id?: string | null
           created_at?: string
@@ -310,6 +362,8 @@ export type Database = {
           verification_status?: Database["public"]["Enums"]["verification_status"]
           voted_at?: string | null
           voter_id?: string
+          webauthn_credential_hash?: string | null
+          webauthn_credential_id?: string | null
         }
         Relationships: [
           {

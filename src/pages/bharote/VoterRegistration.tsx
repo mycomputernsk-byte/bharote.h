@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import BharoteNavbar from "@/components/bharote/BharoteNavbar";
 import { useDeviceFingerprint } from "@/hooks/useDeviceFingerprint";
+import { useWebAuthn } from "@/hooks/useWebAuthn";
 import {
   Select,
   SelectContent,
@@ -63,6 +64,9 @@ const VoterRegistration = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { hash: fingerprintHash, isLoading: fingerprintLoading } = useDeviceFingerprint();
+  const { isSupported: webAuthnSupported, register: registerWebAuthn, isLoading: webAuthnLoading, error: webAuthnError } = useWebAuthn();
+  const [biometricHash, setBiometricHash] = useState<string | null>(null);
+  const [biometricRegistered, setBiometricRegistered] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -227,6 +231,16 @@ const VoterRegistration = () => {
       
       const voterId = voterIdData;
 
+      // Try WebAuthn biometric registration if supported
+      let webAuthnCredHash: string | null = null;
+      if (webAuthnSupported && !biometricRegistered) {
+        webAuthnCredHash = await registerWebAuthn(user.id, formData.fullName);
+        if (webAuthnCredHash) {
+          setBiometricHash(webAuthnCredHash);
+          setBiometricRegistered(true);
+        }
+      }
+
       const { error } = await supabase.from("voters").insert({
         user_id: user.id,
         full_name: formData.fullName,
@@ -239,6 +253,8 @@ const VoterRegistration = () => {
         voter_id: voterId,
         verification_status: "unverified",
         device_fingerprint_hash: fingerprintHash,
+        biometric_registered: !!webAuthnCredHash,
+        webauthn_credential_hash: webAuthnCredHash,
       });
 
       if (error) throw error;
@@ -325,34 +341,69 @@ const VoterRegistration = () => {
             </p>
           </div>
 
-          {/* Fingerprint Status */}
-          <div className={`p-4 rounded-xl mb-6 flex items-center gap-3 ${
-            fingerprintLoading 
-              ? "bg-muted/50" 
-              : fingerprintHash 
-                ? "bg-accent/10 border border-accent/20" 
-                : "bg-destructive/10 border border-destructive/20"
-          }`}>
-            <Fingerprint className={`w-6 h-6 ${
-              fingerprintLoading ? "text-muted-foreground animate-pulse" : 
-              fingerprintHash ? "text-accent" : "text-destructive"
-            }`} />
-            <div>
-              <div className="font-medium">
-                {fingerprintLoading 
-                  ? "Capturing Device Fingerprint..." 
-                  : fingerprintHash 
-                    ? "Device Verified" 
-                    : "Fingerprint Error"}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {fingerprintLoading 
-                  ? "Please wait while we secure your registration" 
-                  : fingerprintHash 
-                    ? "Your device has been uniquely identified for fraud prevention" 
-                    : "Unable to capture device fingerprint"}
+          {/* Fingerprint & Biometric Status */}
+          <div className="space-y-3 mb-6">
+            <div className={`p-4 rounded-xl flex items-center gap-3 ${
+              fingerprintLoading 
+                ? "bg-muted/50" 
+                : fingerprintHash 
+                  ? "bg-accent/10 border border-accent/20" 
+                  : "bg-destructive/10 border border-destructive/20"
+            }`}>
+              <Fingerprint className={`w-6 h-6 ${
+                fingerprintLoading ? "text-muted-foreground animate-pulse" : 
+                fingerprintHash ? "text-accent" : "text-destructive"
+              }`} />
+              <div>
+                <div className="font-medium">
+                  {fingerprintLoading 
+                    ? "Capturing Device Fingerprint..." 
+                    : fingerprintHash 
+                      ? "Device Fingerprint Verified" 
+                      : "Fingerprint Error"}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {fingerprintLoading 
+                    ? "Please wait while we secure your registration" 
+                    : fingerprintHash 
+                      ? "Your device has been uniquely identified" 
+                      : "Unable to capture device fingerprint"}
+                </div>
               </div>
             </div>
+
+            {/* WebAuthn Biometric Status */}
+            {webAuthnSupported && (
+              <div className={`p-4 rounded-xl flex items-center gap-3 ${
+                biometricRegistered
+                  ? "bg-accent/10 border border-accent/20"
+                  : "bg-primary/10 border border-primary/20"
+              }`}>
+                <Shield className={`w-6 h-6 ${biometricRegistered ? "text-accent" : "text-primary"}`} />
+                <div className="flex-1">
+                  <div className="font-medium">
+                    {biometricRegistered ? "Biometric Registered" : "Biometric Available"}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {biometricRegistered 
+                      ? "Your fingerprint/face ID has been registered for secure voting" 
+                      : "Biometric authentication will be registered during submission"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!webAuthnSupported && (
+              <div className="p-4 rounded-xl flex items-center gap-3 bg-muted/50 border border-border">
+                <Fingerprint className="w-6 h-6 text-muted-foreground" />
+                <div>
+                  <div className="font-medium text-sm">Biometric Not Available</div>
+                  <div className="text-xs text-muted-foreground">
+                    Device fingerprint will be used as fallback security
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-card border border-border rounded-2xl p-8">
